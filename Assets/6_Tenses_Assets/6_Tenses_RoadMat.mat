@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: 6_Senses_RoadMat
+  m_Name: 6_Tenses_RoadMat
   m_Shader: {fileID: 10770, guid: 0000000000000000f000000000000000, type: 0}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -30,7 +30,7 @@ Material:
     - _MainTex:
         m_Texture: {fileID: 2800000, guid: ba6785ab50df252449e7f21a75a16694, type: 3}
         m_Scale: {x: 3, y: 1}
-        m_Offset: {x: 0.5112833, y: 0}
+        m_Offset: {x: 0.8674413, y: 0}
     - _MaskTex:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}

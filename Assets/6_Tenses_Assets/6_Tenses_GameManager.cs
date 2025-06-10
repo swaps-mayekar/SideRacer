@@ -1,11 +1,13 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections;
+using TMPro;
 
 namespace Six_Tenses
 {
-    public class Six_Tenses_GameManager : MonoBehaviour
+    internal class Six_Tenses_GameManager : MonoBehaviour
     {
-        [Header("Scrolling Settings")]
+        [Header("Game Settings")]
 
         [SerializeField]
         float m_scrollSpeed = 1f;
@@ -16,35 +18,75 @@ namespace Six_Tenses
         [SerializeField]
         bool m_autoStart = false;
 
+        Material m_roadMaterial;
+        Vector2 m_roadMatOffset = Vector2.zero;
+        bool m_isScrolling = false, m_isAnswered = false;
+        bool m_isTopAnswerCorrect = false, m_isMiddleAnswerCorrect = false, m_isBottomAnswerCorrect = false;
+        Vector2 m_currentAnswerPos, m_defaultAnswerPos;
+
+        GameDifficuly m_currentDifficulty = GameDifficuly.Hard;
+
+        GameMode m_currentGameMode = GameMode.Classroom;
+
+        Six_Tenses_Questions m_availableQuestions;
+
+
+        [Header("References")]
+
         [SerializeField]
         Image m_roadImage = null;
 
-        Material m_roadMaterial;
-        Vector2 m_roadMatOffset;
-        bool m_isScrolling;
+        [SerializeField]
+        GameObject m_gamePanel, m_welcomePanel;
 
-        void Start()
+        [SerializeField]
+        RectTransform m_playerRT, m_topAnswerRT, m_middleAnswerRT, m_bottomAnswerRT, m_answrParentRT;
+
+        [SerializeField]
+        TextMeshProUGUI m_questionText, m_topAnswerText, m_middleAnswerText, m_bottomAnswerText;
+
+        [SerializeField]
+        WaitForSeconds m_initialWait = new WaitForSeconds(1.0f);
+
+        [SerializeField]
+        TextAsset m_dataJSON;
+
+
+
+
+
+
+
+        void Awake()
+        {
+            m_welcomePanel.SetActive(!m_autoStart);
+        }
+
+        IEnumerator Start()
         {
             if (m_roadImage != null)
             {
                 m_roadMaterial = m_roadImage.material;
-                // m_roadMaterial = new Material(m_roadImage.material);
-                // m_roadImage.material = m_roadMaterial;
             }
             else
             {
                 Debug.LogError("Tenses_GameManager::Start::No Image component found on road!");
-                return;
+                yield break;
             }
 
-            // Initialize offset
-            m_roadMatOffset = Vector2.zero;
-            m_isScrolling = m_autoStart;
+            m_currentAnswerPos = m_defaultAnswerPos = m_answrParentRT.anchoredPosition;
+
+            yield return m_initialWait;
+
+            if (m_autoStart)
+            {
+                StartGame();
+            }
         }
 
         void Update()
         {
-            if (!m_isScrolling)
+            if (!m_isScrolling || m_isAnswered)
             {
                 return;
             }
@@ -54,10 +96,13 @@ namespace Six_Tenses
 
             // Keep the offset values between 0 and 1 for seamless looping
             m_roadMatOffset.x = Mathf.Repeat(m_roadMatOffset.x, 1f);
-            m_roadMatOffset.y = Mathf.Repeat(m_roadMatOffset.y, 1f);
+            // m_roadMatOffset.y = Mathf.Repeat(m_roadMatOffset.y, 1f);
 
             // Apply the offset to the material
             m_roadMaterial.mainTextureOffset = m_roadMatOffset;
+
+            m_currentAnswerPos.x += m_scrollDirection.x * m_scrollSpeed * Time.deltaTime;
+            m_answrParentRT.anchoredPosition = m_currentAnswerPos;
         }
 
         // Public methods to control the scrolling
@@ -80,5 +125,62 @@ namespace Six_Tenses
         {
             m_scrollDirection = a_scrollDirection.normalized;
         }
+
+        public void OnClick_StartGame()
+        {
+            ResetAnswers();
+            StartGame();
+        }
+
+        void StartGame()
+        {
+            m_welcomePanel.SetActive(false);
+            m_gamePanel.SetActive(true);
+            m_isScrolling = true;
+        }
+
+        public void OnClick_EndGame()
+        {
+            EndGame();
+        }
+
+        void EndGame()
+        {
+            m_isScrolling = m_isAnswered = false;
+            m_welcomePanel.SetActive(true);
+            m_gamePanel.SetActive(false);
+        }
+
+        void ResetAnswers()
+        {
+            m_defaultAnswerPos = m_answrParentRT.anchoredPosition;
+
+        }
+
+    }
+
+    internal class Six_Tenses_Questions
+    {
+        internal string QuestionText;
+        internal Six_Tenses_Answer[] Answers = new Six_Tenses_Answer[3];
+    }
+
+    internal class Six_Tenses_Answer
+    {
+        internal string AnswerText;
+        internal bool IsAnswerCorrect;
+    }
+
+    internal enum GameDifficuly
+    {
+        Easy,
+        Medium,
+        Hard
+    }
+
+    internal enum GameMode
+    {
+        Classroom,
+        Unlimited
     }
 }
