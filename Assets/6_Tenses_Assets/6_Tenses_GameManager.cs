@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
+using System.Collections.Generic;
+// using System.Linq;
 using TMPro;
 
 namespace Six_Tenses
@@ -18,17 +20,30 @@ namespace Six_Tenses
         [SerializeField]
         bool m_autoStart = false;
 
+        [SerializeField]
+        int m_questionsLimitForClassroom = 10;
+
         Material m_roadMaterial;
         Vector2 m_roadMatOffset = Vector2.zero;
-        bool m_isScrolling = false, m_isAnswered = false;
+        bool m_isScrolling = false, m_isAnswered = false, l_isQuestionShown = false, l_isAnsweredCorrect = false;
         bool m_isTopAnswerCorrect = false, m_isMiddleAnswerCorrect = false, m_isBottomAnswerCorrect = false;
-        Vector2 m_currentAnswerPos, m_defaultAnswerPos;
+        Vector2 m_currentAnswerPos, m_defaultAnswerPos, m_newPosition;
+        float m_movement = 0;
+        int l_randomIndex, m_currentQuestionNum = 1;
 
-        GameDifficuly m_currentDifficulty = GameDifficuly.Hard;
-
+        GameDifficuly m_currentDifficulty = GameDifficuly.Easy;
         GameMode m_currentGameMode = GameMode.Classroom;
 
-        Six_Tenses_Questions m_availableQuestions;
+        enum Lane
+        {
+            Top,
+            Middle,
+            Bottom
+        }
+
+        Lane m_currentLane = Lane.Top;
+        Six_Tenses_Question[] m_availableQuestions;
+        List<int> m_shownQuestions = new();
 
 
         [Header("References")]
@@ -43,17 +58,19 @@ namespace Six_Tenses
         RectTransform m_playerRT, m_topAnswerRT, m_middleAnswerRT, m_bottomAnswerRT, m_answrParentRT;
 
         [SerializeField]
-        TextMeshProUGUI m_questionText, m_topAnswerText, m_middleAnswerText, m_bottomAnswerText;
+        TextMeshProUGUI m_questionText, m_topAnswerText, m_middleAnswerText, m_bottomAnswerText, m_scoringText;
 
         [SerializeField]
-        WaitForSeconds m_initialWait = new WaitForSeconds(1.0f);
+        Image m_topPotholeImg, m_middlePotholeImg, m_bottomPotholeImg;
+
+        [SerializeField]
+        WaitForSeconds m_waitInitial = new WaitForSeconds(2f), m_waitAfterAnswer = new WaitForSeconds(2f);
 
         [SerializeField]
         TextAsset m_dataJSON;
 
-
-
-
+        [SerializeField]
+        Color m_colorDefault = Color.white, m_colorCorrect = Color.green, m_colorWrong = Color.red;
 
 
 
@@ -64,6 +81,12 @@ namespace Six_Tenses
 
         IEnumerator Start()
         {
+            // TODO: Set difficulty here
+            m_currentDifficulty = GameDifficuly.Easy;
+
+            // TODO: set game mode here
+            m_currentGameMode = GameMode.Classroom;
+
             if (m_roadImage != null)
             {
                 m_roadMaterial = m_roadImage.material;
@@ -75,12 +98,63 @@ namespace Six_Tenses
             }
 
             m_currentAnswerPos = m_defaultAnswerPos = m_answrParentRT.anchoredPosition;
+            PopulateQuestions();
 
-            yield return m_initialWait;
+            yield return m_waitInitial;
 
             if (m_autoStart)
             {
                 StartGame();
+            }
+        }
+
+        void PopulateQuestions()
+        {
+            if (m_dataJSON != null)
+            {
+                QuestionsWrapper l_qWrapper = JsonUtility.FromJson<QuestionsWrapper>(m_dataJSON.text);
+                if (l_qWrapper == null)
+                {
+                    Debug.LogError("Tenses_GameManager::PopulateQuestions::Failed to parse JSON data!");
+                    return;
+                }
+
+                m_availableQuestions = l_qWrapper.questions;
+                if (m_availableQuestions == null)
+                {
+                    Debug.LogError("Tenses_GameManager::PopulateQuestions::No questions array found in JSON!");
+                    return;
+                }
+
+                // Debug.Log($"Tenses_GameManager::PopulateQuestions::Total questions before filtering: {m_availableQuestions.Length}");
+                // Debug.Log($"Tenses_GameManager::PopulateQuestions::Current difficulty: {m_currentDifficulty}");
+
+                // Filter questions based on difficulty
+                List<Six_Tenses_Question> l_filteredQuestions = new List<Six_Tenses_Question>();
+                string l_currentDifficultyLower = m_currentDifficulty.ToString().ToLower();
+                foreach (var l_question in m_availableQuestions)
+                {
+                    if (l_question != null && l_question.Difficulty != null &&
+                        l_question.Difficulty.ToLower() == l_currentDifficultyLower)
+                    {
+                        l_filteredQuestions.Add(l_question);
+                    }
+                }
+                m_availableQuestions = l_filteredQuestions.ToArray();
+                m_shownQuestions.Clear();
+
+                if (m_availableQuestions.Length == 0)
+                {
+                    Debug.LogError($"Tenses_GameManager::PopulateQuestions::No questions found for difficulty: {m_currentDifficulty}");
+                }
+                else
+                {
+                    Debug.Log("Tenses_GameManager::PopulateQuestions::Found " + m_availableQuestions.Length + " questions.");
+                }
+            }
+            else
+            {
+                Debug.LogError("Tenses_GameManager::PopulateQuestions::No JSON data found!");
             }
         }
 
@@ -101,42 +175,86 @@ namespace Six_Tenses
             // Apply the offset to the material
             m_roadMaterial.mainTextureOffset = m_roadMatOffset;
 
-            m_currentAnswerPos.x += m_scrollDirection.x * m_scrollSpeed * Time.deltaTime;
-            m_answrParentRT.anchoredPosition = m_currentAnswerPos;
+            m_movement = m_scrollDirection.x * m_scrollSpeed * Time.deltaTime;
+            m_currentAnswerPos.x += m_movement;
+            m_newPosition.x -= m_movement * 900f;
+            m_answrParentRT.anchoredPosition = m_newPosition;
+
+            // Check collision with top answer
+            if (RectTransformUtility.RectangleContainsScreenPoint(m_topAnswerRT, m_playerRT.position))
+            {
+                OnAnswerSelected(m_isTopAnswerCorrect, m_topAnswerText, m_topPotholeImg);
+            }
+            // Check collision with middle answer
+            else if (RectTransformUtility.RectangleContainsScreenPoint(m_middleAnswerRT, m_playerRT.position))
+            {
+                OnAnswerSelected(m_isMiddleAnswerCorrect, m_middleAnswerText, m_middlePotholeImg);
+            }
+            // Check collision with bottom answer
+            else if (RectTransformUtility.RectangleContainsScreenPoint(m_bottomAnswerRT, m_playerRT.position))
+            {
+                OnAnswerSelected(m_isBottomAnswerCorrect, m_bottomAnswerText, m_bottomPotholeImg);
+            }
         }
 
-        // Public methods to control the scrolling
-        public void StartScrolling()
+        void OnAnswerSelected(bool a_isAnswerCorrect, TextMeshProUGUI a_answerText, Image a_potholeImg)
         {
-            m_isScrolling = true;
+            m_isAnswered = true;
+            if (a_isAnswerCorrect)
+            {
+                l_isAnsweredCorrect = true;
+                a_answerText.color = m_colorCorrect;
+            }
+            else
+            {
+                a_answerText.color = m_colorWrong;
+                a_potholeImg.enabled = true;
+            }
+
+            if (m_scoringCheck != null)
+            {
+                StopCoroutine(m_scoringCheck);
+            }
+            m_scoringCheck = StartCoroutine(IE_CheckScoring());
         }
 
-        public void StopScrolling()
-        {
-            m_isScrolling = false;
-        }
+        Coroutine m_scoringCheck;
 
-        public void SetScrollSpeed(float a_scrollSpeed)
+        IEnumerator IE_CheckScoring()
         {
-            m_scrollSpeed = a_scrollSpeed;
-        }
+            yield return m_waitAfterAnswer;
 
-        public void SetScrollDirection(Vector2 a_scrollDirection)
-        {
-            m_scrollDirection = a_scrollDirection.normalized;
+            if (m_currentGameMode == GameMode.Classroom)
+            {
+                m_currentQuestionNum++;
+                if (l_isAnsweredCorrect || m_currentQuestionNum < m_questionsLimitForClassroom)
+                {
+                    ResetAnswers();
+                }
+                else
+                {
+                    yield return m_waitAfterAnswer;
+                    EndGame();
+                }
+            }
+            else
+            {
+                ResetAnswers();
+            }
+            m_scoringCheck = null;
         }
 
         public void OnClick_StartGame()
         {
-            ResetAnswers();
             StartGame();
         }
 
         void StartGame()
         {
+            m_scoringText.text = string.Empty;
             m_welcomePanel.SetActive(false);
             m_gamePanel.SetActive(true);
-            m_isScrolling = true;
+            ResetAnswers();
         }
 
         public void OnClick_EndGame()
@@ -147,28 +265,70 @@ namespace Six_Tenses
         void EndGame()
         {
             m_isScrolling = m_isAnswered = false;
-            m_welcomePanel.SetActive(true);
             m_gamePanel.SetActive(false);
+            m_welcomePanel.SetActive(true);
+            // TODO: Return to main scene
         }
 
         void ResetAnswers()
         {
-            m_defaultAnswerPos = m_answrParentRT.anchoredPosition;
-
+            m_answrParentRT.anchoredPosition = m_defaultAnswerPos;
+            m_topAnswerText.color = m_middleAnswerText.color = m_bottomAnswerText.color = m_colorDefault;
+            m_topPotholeImg.enabled = m_middlePotholeImg.enabled = m_bottomPotholeImg.enabled = false;
+            m_isAnswered = false;
+            ShowQuestion();
         }
 
+        void ShowQuestion()
+        {
+            m_newPosition = m_answrParentRT.anchoredPosition;
+            // If we've shown all questions, reset the shown questions list
+            if (m_shownQuestions.Count >= m_availableQuestions.Length)
+            {
+                m_shownQuestions.Clear();
+            }
+
+            do
+            {
+                l_randomIndex = Random.Range(0, m_availableQuestions.Length);
+                l_isQuestionShown = m_shownQuestions.Contains(l_randomIndex);
+            } while (l_isQuestionShown);
+
+            m_shownQuestions.Add(l_randomIndex);
+            Six_Tenses_Question m_question = m_availableQuestions[l_randomIndex];
+            m_questionText.text = m_question.QuestionText;
+            m_topAnswerText.text = m_question.Options[0].AnswerText;
+            m_isTopAnswerCorrect = m_question.Options[0].IsCorrect;
+            m_middleAnswerText.text = m_question.Options[1].AnswerText;
+            m_isMiddleAnswerCorrect = m_question.Options[1].IsCorrect;
+            m_bottomAnswerText.text = m_question.Options[2].AnswerText;
+            m_isBottomAnswerCorrect = m_question.Options[2].IsCorrect;
+            m_isScrolling = true;
+            if (m_currentGameMode == GameMode.Classroom)
+            {
+                m_scoringText.text = "Question " + m_currentQuestionNum + "/" + m_questionsLimitForClassroom;
+            }
+        }
+
+        void HideQuestion()
+        {
+            ResetAnswers();
+        }
     }
 
-    internal class Six_Tenses_Questions
+    [System.Serializable]
+    public class Six_Tenses_Question
     {
-        internal string QuestionText;
-        internal Six_Tenses_Answer[] Answers = new Six_Tenses_Answer[3];
+        public string QuestionText;
+        public Six_Tenses_Answer[] Options;
+        public string Difficulty;
     }
 
-    internal class Six_Tenses_Answer
+    [System.Serializable]
+    public class Six_Tenses_Answer
     {
-        internal string AnswerText;
-        internal bool IsAnswerCorrect;
+        public string AnswerText;
+        public bool IsCorrect;
     }
 
     internal enum GameDifficuly
@@ -182,5 +342,11 @@ namespace Six_Tenses
     {
         Classroom,
         Unlimited
+    }
+
+    [System.Serializable]
+    public class QuestionsWrapper
+    {
+        public Six_Tenses_Question[] questions;
     }
 }
